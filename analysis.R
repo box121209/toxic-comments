@@ -1,27 +1,17 @@
+setwd("~/projects/toxic-comments/toxic-comments")
+
 HOMEPATH <- "/home/bill/projects/wikiwords"
 source(sprintf("%s/tda_functions.R", HOMEPATH))
 
 inpath <- "./data"
 
-
-# check output path and create directory if it isn't already there:
-
-cat("Checking for output directory...\n")
-
-tmp <- ifelse(!dir.exists(file.path(args[2])), 
-              dir.create(file.path(args[2])), 
-              FALSE)
-tmp <- ifelse(!dir.exists(file.path(sprintf("%s/data", args[2]))), 
-              dir.create(file.path(sprintf("%s/data", args[2]))), 
-              FALSE)
-
 # read input data:
 
 cat("Reading data...\n")
 
-dictfile <- sprintf("%s/wdict.txt", args[1])
-freqfile <- sprintf("%s/wcounts.txt", args[1])
-vecfile <- sprintf("%s/wvectors.txt", args[1])
+dictfile <- sprintf("%s/wdict.txt", inpath)
+freqfile <- sprintf("%s/wcounts.txt", inpath)
+vecfile <- sprintf("%s/wvectors.txt", inpath)
 
 dat1 <- read.table(dictfile)
 names(dat1) <- c("word", "class")
@@ -40,25 +30,29 @@ cat("Fitting frequency distribution...\n")
 tab <- table(freq)
 xx <- as.numeric(dimnames(tab)$freq)
 yy <- as.numeric(tab)
-
-imgfile <- sprintf("%s/word_frequency_distribution.pdf", args[2])
-pdf(imgfile)
 plot(yy ~ xx, log='xy', col='blue', cex=0.5, frame.plot=0, 
      xlab="Word count", ylab="Nr words")
 
+# we see there are two distinct distributions:
+rng <- 1:35
+plot(yy[rng] ~ xx[rng], log='xy', col='blue', cex=0.5, frame.plot=0, 
+     xlab="Word count", ylab="Nr words")
+
+rng <- (36:length(xx))
+plot(yy[rng] ~ xx[rng], log='xy', col='blue', cex=0.5, frame.plot=0, 
+     xlab="Word count", ylab="Nr words")
+
 # fit power law:
-cond <- (xx < 2e03)
+cond <- (35 < xx & xx < 1e03)
 model <- lm(log(yy[cond]) ~ log(xx[cond]))
 ( coef <- model$coefficients )
 f <- function(x) exp(coef[1] + coef[2]*log(x))
 xxx <- exp(0:10)
 yyy <- sapply(xxx, f)
 points( yyy~xxx, type='l', col='red', lwd=2)
-text(2e03, 1000, 
+text(1e03, 100,
      labels=sprintf("Power law coefficients (%g, %g)", coef[1], coef[2]), col='red')
-dev.off()
 
-cat(sprintf("Plot written to %s/word_frequency_distribution.pdf\n", args[2]))
 
 ################################################################
 # exponential binning of frequency using the power law model:
