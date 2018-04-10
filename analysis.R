@@ -12,6 +12,9 @@ source(sprintf("%s/tda_functions.R", HOMEPATH))
 
 inpath <- "./data"
 
+# TEMP FOR COMPARISON:
+#inpath <- "~/Projects/201801-wikiwords/wikipedia" 
+
 # read input data:
 
 dictfile <- sprintf("%s/wdict.txt", inpath)
@@ -50,12 +53,55 @@ plot(yy[rng] ~ xx[rng], log='xy', col='blue', cex=0.5, frame.plot=0,
 cat("Nr words:", length(word[freq %in% rng]))
 sample(word[freq %in% rng], 100)
 
+################################################################
+# continuity of frequency
+
+vecsize <- ncol(dat3) - 1
+
+ssize <- 1000
+idx <- sample(nrow(alldat), ssize)
+
+dist.v <- dist(dat3[idx, 2:(vecsize+1)], method="euclidean") 
+hist(dist.v, col='lightgrey')
+
+# call vectors 'close' if distance is <= 10:
+
+dist.f <- dist(freq[idx], method="euclidean") 
+
+cond <- (dist.v < 8)
+plot(dist.v[cond], dist.f[cond], col='blue', cex=0.2, frame.plot=0)
+
+# similarity matrix:
+
+sampled <- alldat[sample(1:nrow(alldat), ssize),]
+subdat <- sampled
+
+x <- subdat[,2:201]
+word.dist <- dist(x, method="euclidean")
+dmat <- as.matrix(word.dist)
+hist(dmat, col='lightgrey', xlab="Pairwise distance in word2vec space", main="")
+
+# look at some neighbourhoods:
+i <- sample(1:ssize,1); cat(sprintf("%s", subdat$word[i]))
+
+# how discontinuous is frequency as a function on words?
+# look at points close together: do they have similar frequency?
+threshold <- 20
+res <- matrix(nrow=0, ncol=2)
+for(i in 1:(ssize-1))
+  for(j in (i+1):ssize)
+    if(dmat[i,j] < threshold){
+      y <-  abs(subdat$freq[i] - subdat$freq[j])
+      res <- rbind(res, c(dmat[i,j], y))
+    }
+plot(res, col='blue', frame.plot=0, xlab='Vector separation', ylab='Frequency separation')
 
 ################################################################
 # fit power law:
 
+cond <- TRUE
 cond <- (33 < xx & xx < 1e03)
-cond <- (xx <= 33)
+cond <- (xx <= 20)
 
 model <- lm(log(yy[cond]) ~ log(xx[cond]))
 ( coef <- model$coefficients )
@@ -71,6 +117,10 @@ text(1e03, 100,
 ################################################################
 # exponential binning of frequency using the power law model:
 
+cond <- TRUE
+cond <- (33 < freq & freq < 1e03)
+cond <- (freq <= 20)
+
 makebins <- function(nbins, coef, condition=TRUE){
   
   epsilon <- 1/nbins/5
@@ -78,8 +128,8 @@ makebins <- function(nbins, coef, condition=TRUE){
   right <- (1:nbins)/nbins + epsilon
   # aa <- exp(coef[1]) # don't need
   bb <- -coef[2]
-  mn <- min(freq)^(1-bb)
-  mx <- max(freq)^(1-bb)
+  mn <- min(freq[condition])^(1-bb)
+  mx <- max(freq[condition])^(1-bb)
   func <- function(x) x^(1/(1-bb))
   left <- func( mn + (mx - mn)*left )
   right <- func( mn + (mx - mn)*right )
@@ -96,7 +146,7 @@ makebins <- function(nbins, coef, condition=TRUE){
   bins
 }
 
-nbins <- 20                 # PARAMETER for mapper construction
+nbins <- 64                # PARAMETER for mapper construction
 coarseness <- 32            # PARAMETER target average cluster size
 
 bins <- makebins(nbins, coef, condition=cond)
@@ -146,11 +196,33 @@ makeclusters_centroids <- function(bins, coarseness){
 
 # hierarchical clustering within bins:
 
+options(expressions=10000)
 cluster.set <- makeclusters_centroids(bins, coarseness)
 cat(sprintf("Found %d clusters\n", length(cluster.set)))
 
 ################################################################
 # compute graph edges:
+
+edgelist <- function(cluster.set){
+  
+  ccount <- length(cluster.set)
+  edges <- matrix(nrow=0, ncol=2)
+  for(i in 1:(ccount-1))
+    for(j in (i+1):ccount){
+      si <- cluster.set[[i]]$cluster
+      sj <- cluster.set[[j]]$cluster
+      wt <- length(si) + length(sj) - length(unique(c(si,sj)))
+      if(wt > 0)
+        edges <- rbind(edges, c(i,j))
+    }
+  mx <- max(edges)
+  if(mx < ccount)
+    for(i in (mx+1):ccount)
+      edges <- rbind(edges, c(i,i))
+  # return:
+  edges
+}
+
 
 library(igraph)
 
@@ -172,11 +244,12 @@ library(Rtsne)
 cat("Computing t-SNE layout...\n")
 centroid.mat <- do.call(rbind, lapply(cluster.set, function(x) x$centroid))
 lout <- Rtsne(centroid.mat, 
-              theta=0.1,
+              theta=0.5,
+              perplexity=60,
               verbose=TRUE, 
               initial_dims=100,
               check_duplicates=FALSE, 
-              max_iter=2000)
+              max_iter=5000)
 lout <- data.frame(lout$Y)
 names(lout) <- c("X","Y")
 
@@ -184,9 +257,7 @@ names(lout) <- c("X","Y")
 ################################################################
 # write output:
 
-cat("Writing output...\n")
-
-path <- sprintf("%s/data", outpath)
+path <- "shiny/wordrep/data"
 dat <- dat2
 
 save(dat, file=sprintf("%s/w2v_freq.Rds", path))
@@ -194,6 +265,3 @@ save(cluster.set, file=sprintf("%s/w2v_cset.Rds", path))
 save(mg, file=sprintf("%s/w2v_graph.Rds", path))
 save(lout, file=sprintf("%s/w2v_layout.Rds", path))
 
-system(sprintf("cp ./shiny/*.R %s", args[2]))
-
-cat("Done.\n")
