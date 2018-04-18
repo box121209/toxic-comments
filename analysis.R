@@ -17,20 +17,23 @@ inpath <- "./data"
 
 # read input data:
 
-dictfile <- sprintf("%s/wdict.txt", inpath)
 freqfile <- sprintf("%s/wcounts.txt", inpath)
 vecfile <- sprintf("%s/wvectors.txt", inpath)
 
-dat1 <- read.table(dictfile)
-names(dat1) <- c("word", "class")
-dat2 <- read.table(freqfile, row.names=NULL)
-names(dat2) <- c("freq", "word")
-dat2$freq <- as.numeric(dat2$freq)
-dat3 <- read.table(vecfile)
-names(dat3)[1] <- "word"
-dat4 <- merge(dat1, dat2)
-alldat <- merge(dat3, dat4)
-attach(alldat)
+dat1 <- read.table(freqfile, row.names=NULL)
+names(dat1) <- c("freq", "word")
+dat1$freq <- as.numeric(dat1$freq)
+
+dat2 <- read.table(vecfile)
+names(dat2)[1] <- "word"
+
+# NOTE that the next merge() removes rows not common to both 
+# data frames:
+dat <- merge(dat1, dat2)
+attach(dat)
+
+vecsize <- ncol(dat) - 2
+
 
 # frequency distribution:
 tab <- table(freq)
@@ -56,27 +59,12 @@ sample(word[freq %in% rng], 100)
 ################################################################
 # continuity of frequency
 
-vecsize <- ncol(dat3) - 1
-
 ssize <- 1000
-idx <- sample(nrow(alldat), ssize)
-
-dist.v <- dist(dat3[idx, 2:(vecsize+1)], method="euclidean") 
-hist(dist.v, col='lightgrey')
-
-# call vectors 'close' if distance is <= 10:
-
-dist.f <- dist(freq[idx], method="euclidean") 
-
-cond <- (dist.v < 8)
-plot(dist.v[cond], dist.f[cond], col='blue', cex=0.2, frame.plot=0)
+sampled <- dat[sample(2:nrow(dat), ssize),]
+subdat <- sampled
+x <- subdat[,3:(vecsize+2)]
 
 # similarity matrix:
-
-sampled <- alldat[sample(1:nrow(alldat), ssize),]
-subdat <- sampled
-
-x <- subdat[,2:201]
 word.dist <- dist(x, method="euclidean")
 dmat <- as.matrix(word.dist)
 hist(dmat, col='lightgrey', xlab="Pairwise distance in word2vec space", main="")
@@ -86,7 +74,9 @@ i <- sample(1:ssize,1); cat(sprintf("%s", subdat$word[i]))
 
 # how discontinuous is frequency as a function on words?
 # look at points close together: do they have similar frequency?
-threshold <- 20
+# call vectors 'close' if distance is <= [e.g. 10]:
+
+threshold <- 1.5
 res <- matrix(nrow=0, ncol=2)
 for(i in 1:(ssize-1))
   for(j in (i+1):ssize)
@@ -94,13 +84,16 @@ for(i in 1:(ssize-1))
       y <-  abs(subdat$freq[i] - subdat$freq[j])
       res <- rbind(res, c(dmat[i,j], y))
     }
-plot(res, col='blue', frame.plot=0, xlab='Vector separation', ylab='Frequency separation')
+plot(res, col='blue', frame.plot=0, 
+     xlab='Vector separation', 
+     ylab='Frequency separation')
 
 ################################################################
 # fit power law:
 
-cond <- TRUE
-cond <- (33 < xx & xx < 1e03)
+cond <- (xx < 1.7e03) # for wikipedia data
+
+cond <- (40 < xx & xx < 5e02)
 cond <- (xx <= 20)
 
 model <- lm(log(yy[cond]) ~ log(xx[cond]))
@@ -108,18 +101,17 @@ model <- lm(log(yy[cond]) ~ log(xx[cond]))
 f <- function(x) exp(coef[1] + coef[2]*log(x))
 xxx <- exp(0:10)
 yyy <- sapply(xxx, f)
+
+main=sprintf("Power law coefficients (%g, %g)", 
+             coef[1], coef[2])
+plot(yy ~ xx, log='xy', col='blue', cex=0.5, frame.plot=0, 
+     main=main,
+     xlab="Word count", ylab="Nr words")
 points( yyy~xxx, type='l', col='red', lwd=2)
-text(1e03, 100,
-     labels=sprintf("Power law coefficients (%g, %g)", 
-                    coef[1], coef[2]), col='red')
 
 
 ################################################################
 # exponential binning of frequency using the power law model:
-
-cond <- TRUE
-cond <- (33 < freq & freq < 1e03)
-cond <- (freq <= 20)
 
 makebins <- function(nbins, coef, condition=TRUE){
   
@@ -146,7 +138,7 @@ makebins <- function(nbins, coef, condition=TRUE){
   bins
 }
 
-nbins <- 64                # PARAMETER for mapper construction
+nbins <- 20                # PARAMETER for mapper construction
 coarseness <- 32            # PARAMETER target average cluster size
 
 bins <- makebins(nbins, coef, condition=cond)
@@ -159,8 +151,7 @@ makeclusters_centroids <- function(bins, coarseness){
   
   cluster.set <- list()
   ccount <- 0
-  nc <- ncol(dat3)
-  
+
   recurse.func <- function(hc, bin.nr, ccount){
     
     for(child in 1:2){
@@ -168,7 +159,7 @@ makeclusters_centroids <- function(bins, coarseness){
       if(length(set) < coarseness){
         # update global variables:
         ccount <- ccount + 1
-        centroid <- colSums( alldat[set, 2:nc] )/length(set)
+        centroid <- colSums( dat[set, 3:(vecsize+2)] )/length(set)
         cluster.set[[ccount]] <<- list(cluster=set, centroid=centroid, height=bin.nr)
         cat(sprintf("%d %d       \r", length(set), ccount))
       } else {
@@ -183,9 +174,17 @@ makeclusters_centroids <- function(bins, coarseness){
     
     bin <- bins[[nr]]
     cat(sprintf("Bin %d                           \n", nr))
-    bindist <- dist(alldat[bin, 2:nc], method="euclidean") 
-    hc <- as.dendrogram( hclust(bindist) )
-    ccount <- recurse.func(hc, nr, ccount)
+    if(length(bin) > 1){
+      bindist <- dist(dat[bin, 3:(vecsize+2)], method="euclidean") 
+      hc <- as.dendrogram( hclust(bindist) )
+      ccount <- recurse.func(hc, nr, ccount)
+    } else {
+      ccount <- ccount + 1
+      set <- as.numeric(bin)
+      centroid <- dat[set, 3:(vecsize+2)]
+      cluster.set[[ccount]] <<- list(cluster=set, centroid=centroid, height=nr)
+      cat(sprintf("%d %d       \r", length(set), ccount))
+    }
     cat("\r")
   }  
   
@@ -245,11 +244,11 @@ cat("Computing t-SNE layout...\n")
 centroid.mat <- do.call(rbind, lapply(cluster.set, function(x) x$centroid))
 lout <- Rtsne(centroid.mat, 
               theta=0.5,
-              perplexity=60,
+              perplexity=30,
               verbose=TRUE, 
               initial_dims=100,
               check_duplicates=FALSE, 
-              max_iter=5000)
+              max_iter=2000)
 lout <- data.frame(lout$Y)
 names(lout) <- c("X","Y")
 
@@ -258,7 +257,7 @@ names(lout) <- c("X","Y")
 # write output:
 
 path <- "shiny/wordrep/data"
-dat <- dat2
+dat <- dat[,1:2]
 
 save(dat, file=sprintf("%s/w2v_freq.Rds", path))
 save(cluster.set, file=sprintf("%s/w2v_cset.Rds", path))
