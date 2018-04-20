@@ -1,4 +1,4 @@
-ubuntu <- FALSE
+ubuntu <- TRUE
 
 if(ubuntu){
   setwd("~/projects/toxic-comments/toxic-comments")
@@ -44,17 +44,32 @@ plot(yy ~ xx, log='xy', col='blue', cex=0.5, frame.plot=0,
 
 # we see there are two distinct distributions:
 rng <- 1:33
-plot(yy[rng] ~ xx[rng], log='xy', col='blue', cex=0.5, frame.plot=0, 
+word.rare <- word[freq %in% rng]
+freq.rare <- freq[freq %in% rng]
+tab <- table(freq.rare)
+xx <- as.numeric(dimnames(tab)$freq.rare)
+yy <- as.numeric(tab)
+plot(yy ~ xx, log='xy', col='blue', cex=0.5, frame.plot=0, 
      xlab="Word count", ylab="Nr words")
-cat("Nr words:", length(word[freq %in% rng]))
-sample(word[freq %in% rng], 100)
+cat("Nr rare words:", length(unique(word.rare)))
+sample(word.rare, 100)
 
 
-rng <- (34:length(xx))
-plot(yy[rng] ~ xx[rng], log='xy', col='blue', cex=0.5, frame.plot=0, 
+rng <- (34:max(freq))
+word.common <- word[freq %in% rng]
+freq.common <- freq[freq %in% rng]
+tab <- table(freq.common)
+xx <- as.numeric(dimnames(tab)$freq.common)
+yy <- as.numeric(tab)
+plot(yy ~ xx, log='xy', col='blue', cex=0.5, frame.plot=0, 
      xlab="Word count", ylab="Nr words")
-cat("Nr words:", length(word[freq %in% rng]))
-sample(word[freq %in% rng], 100)
+cat("Nr common words:", length(unique(word.common)))
+sample(word.common, 100)
+
+
+# choose data set:
+
+dat <- dat[freq %in% rng, ]
 
 ################################################################
 # continuity of frequency
@@ -76,7 +91,7 @@ i <- sample(1:ssize,1); cat(sprintf("%s", subdat$word[i]))
 # look at points close together: do they have similar frequency?
 # call vectors 'close' if distance is <= [e.g. 10]:
 
-threshold <- 1.5
+threshold <- 1.2
 res <- matrix(nrow=0, ncol=2)
 for(i in 1:(ssize-1))
   for(j in (i+1):ssize)
@@ -93,8 +108,7 @@ plot(res, col='blue', frame.plot=0,
 
 cond <- (xx < 1.7e03) # for wikipedia data
 
-cond <- (40 < xx & xx < 5e02)
-cond <- (xx <= 20)
+cond <- (5e01 < xx & xx < 1e03)
 
 model <- lm(log(yy[cond]) ~ log(xx[cond]))
 ( coef <- model$coefficients )
@@ -182,6 +196,7 @@ makeclusters_centroids <- function(bins, coarseness){
       ccount <- ccount + 1
       set <- as.numeric(bin)
       centroid <- dat[set, 3:(vecsize+2)]
+      print(centroid)
       cluster.set[[ccount]] <<- list(cluster=set, centroid=centroid, height=nr)
       cat(sprintf("%d %d       \r", length(set), ccount))
     }
